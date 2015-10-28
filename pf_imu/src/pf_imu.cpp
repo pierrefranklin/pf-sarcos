@@ -92,7 +92,7 @@ bool pf_IMU::initialize()
         break;
     }
     printf("%s\n",extra_msg);
-    exit(0);
+    return false;
     // IMU_EXCEPT(microstrain_3dmgx2_imu::Exception, "Unable to open serial port [%s]. %s. %s", port_name, strerror(errno), extra_msg);
   }
 
@@ -106,13 +106,20 @@ bool pf_IMU::initialize()
   if (fcntl(fd_, F_SETLK, &fl) != 0) {
     printf("Device %s is already locked. Try 'lsof | grep %s' to find other processes that currently have the port open.", port_name, port_name);
   
-    exit(0);}
+    return false;}
 
 struct termios term;
   if (tcgetattr(fd_, &term) < 0){
     printf("Unable to get serial port attributes. The port you specified (%s) may not be a serial port.", port_name);
   
-    exit(0);}
+    return false;}
+
+  if(rt_pipe_create(&stream_pipe_, "cga_imu_stream",P_MINOR_AUTO,0))
+  {
+    printf("pf_IMU: cannot create pipe, error: %d, %s", errno,
+     strerror(errno));
+    return false;
+  }
 
 cfsetispeed(&term, B921600);
 cfsetospeed(&term, B921600);
@@ -122,7 +129,7 @@ cfsetospeed(&term, B921600);
 if (tcsetattr(fd_, TCSAFLUSH, &term) < 0 ){
   printf("Unable to set serial port attributes. The port you specified (%s) may not be a serial port.", port_name); /// @todo tcsetattr returns true if at least one attribute was set. Hence, we might not have set everything on success.
 
-    exit(0);}
+    return false;}
 
   printf("Reached 1 \n");
 
@@ -172,7 +179,6 @@ void pf_IMU::read_pf_imu()
               header_index++;
             } else {
               header_index = 0;
-              printf("reset header index");
             }
             break;
           case 2:
@@ -180,7 +186,6 @@ void pf_IMU::read_pf_imu()
               header_index++;
             } else {
               header_index = 0;
-              printf("reset header index");
             }
             break;
           case 3:
@@ -188,7 +193,6 @@ void pf_IMU::read_pf_imu()
               waiting_for_header = false;
             } else {
               header_index = 0;
-              printf("reset header index");
             }
             break;
         }
@@ -224,6 +228,8 @@ void pf_IMU::read_pf_imu()
     assert(sizeof(rcv_msg) == 32);
 		memcpy(&rcv_msg, msg, sizeof(rcv_msg));
 
+
+
     rcv_msg.xrot = ReverseFloat(rcv_msg.xrot);
     rcv_msg.yrot = ReverseFloat(rcv_msg.yrot);
     rcv_msg.zrot = ReverseFloat(rcv_msg.zrot);
@@ -234,11 +240,32 @@ void pf_IMU::read_pf_imu()
 
     rcv_msg.Temp = int32_t(rcv_msg.Temp);
 
-    std::cout<<rcv_msg.xrot<<"\t"<<rcv_msg.yrot<<"\t"<<rcv_msg.zrot<<",\t";
-    std::cout<<rcv_msg.xacc<<"\t"<<rcv_msg.yacc<<"\t"<<rcv_msg.zacc<<",\t"<<std::endl;
-    std::cout<<rcv_msg.status<<", "<<(unsigned int) rcv_msg.seq_num<<", "<<rcv_msg.Temp;
+    rt_mutex_acquire(&mutex_,TM_INFINITE);
+    A_[0] = double(rcv_msg.xacc);
+    A_[1] = double(rcv_msg.yacc);
+    A_[2] = double(rcv_msg.zacc);
+    G_[0] = double(rcv_msg.xrot);
+    G_[1] = double(rcv_msg.yrot);
+    G_[2] = double(rcv_msg.zrot);
 
-    printf("\n\n-------------------------------------------------\n");
+    if(streaming_)
+    {
+      steaming_msg log;
+      /*
+      log.rdt_seq = rdt_sequence_;
+      log.ft_seq = ft_sequence_;
+      log.status = status_;
+      */
+      for(int i=0; i<3; ++i)
+      {
+        log.A[i] = A_[i];
+        log.G[i] = G_[i];
+      }
+      log.time = double(time1-time2)/10e9;
+      time2 = time1;
+      rt_pipe_write(&stream_pipe_,&log,sizeof(log), P_NORMAL);
+    }
+    rt_mutex_release(&mutex_);
 
   }
 
@@ -290,7 +317,6 @@ void pf_IMU::stop()
     going_ = false;
     rt_mutex_release(&mutex_);
     reading_thread_->join();
-    rt_dev_close(socket_);
     rt_pipe_delete(&stream_pipe_);
     initialized_ = false;
   }

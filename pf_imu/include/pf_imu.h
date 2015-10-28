@@ -35,11 +35,7 @@ public:
   void setBias();
 
   double A_[3];
-  double G_[3];
-  double A1_[3];
-  double G1_[3];
-  double A2_[3];                                                                                              
-  double G2_[3];                                                                                              
+  double G_[3];                                                                                             
 
   /*
   uint32_t rdt_sequence_;
@@ -87,7 +83,6 @@ private:
   void read_pf_imu();
 
   sockaddr_in local_address_, remote_address_;
-  int socket_;
   boost::shared_ptr<boost::thread> reading_thread_;
 
   double A_bias_[3], G_bias_[3];
