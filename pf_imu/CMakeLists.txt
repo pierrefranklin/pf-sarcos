@@ -39,7 +39,8 @@ ADD_LIBRARY(${PROJECT_NAME}
 		src/pf_imu.cpp)
 target_link_libraries(${PROJECT_NAME}
   ${Xenomai_LIBRARIES_NATIVE}
-  ${Xenomai_LIBRARY_RTDM})
+  ${Xenomai_LIBRARY_RTDM}
+  ${Boost_LIBRARIES})
 
 ADD_EXECUTABLE(test_pf_imu
 		tests/test_pf_imu.cpp)

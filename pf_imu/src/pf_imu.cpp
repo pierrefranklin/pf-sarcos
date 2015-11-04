@@ -12,7 +12,7 @@
 #include <string>
 #include <rtnet.h>
 #include <cstdio>
-#include <pf_imu.h>
+#include <pf-sarcos/pf_imu.h>
 #include <native/timer.h>
 
 #include <assert.h>
@@ -114,7 +114,7 @@ struct termios term;
   
     return false;}
 
-  if(rt_pipe_create(&stream_pipe_, "cga_imu_stream",P_MINOR_AUTO,0))
+  if(rt_pipe_create(&stream_pipe_, "pf_imu_stream",P_MINOR_AUTO,0))
   {
     printf("pf_IMU: cannot create pipe, error: %d, %s", errno,
      strerror(errno));
@@ -217,11 +217,6 @@ void pf_IMU::read_pf_imu()
       }
     }
 
-
-    for (int i = 0; i < 32; i++){
-		  printf("%2x ", (unsigned char)msg[i]);
-    }
-    printf("\n");
 
 
     received_msg rcv_msg;

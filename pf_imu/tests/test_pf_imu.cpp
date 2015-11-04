@@ -39,7 +39,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-#include <pf_imu.h>
+#include <pf-sarcos/pf_imu.h>
 
 RT_PIPE log_pipe;
 pf_imu::pf_IMU sensor;
