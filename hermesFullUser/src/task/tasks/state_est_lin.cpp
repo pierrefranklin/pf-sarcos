@@ -5,6 +5,7 @@
  *      Author: perry
  */
 
+#include <iostream>
 #include <Eigen/Core>
 #include <eigen3/Eigen/Geometry>
 #include <eigen3/Eigen/Dense>
@@ -23,6 +24,17 @@
 #include "SL_shared_memory.h"
 #include "SL_man.h"
 
+#include "KinematicsEigen.h"
+
+static int init_state_est_lin_task();
+static int run_state_est_lin_task();
+static int change_state_est_lin_task();
+
+extern "C"
+void add_state_est_lin_task();
+
+
+
 const Eigen::Matrix<double,3,1> _gravity(0,0,-9.81);
 Eigen::Matrix<double,3,1> _imu_lin_offset(0, 0, 0);
 Eigen::Quaterniond _imu_quat_offset(1, 0, 0, 0);
@@ -31,6 +43,7 @@ static const int X0 = 0;
 static const int V0 = 3;
 // Filter Params
 int zDim;
+Eigen::Matrix<double,6,1> _y;
 Eigen::Matrix<double,6,1> _x;
 Eigen::Matrix<double,6,1> _z;
 Eigen::Matrix<double,6,1> _innov;
@@ -58,8 +71,8 @@ int _contact_state;
 int _contact_state_full;
 int _previous_contact_state; // Previous contact state
 // int _contact_timer;
-bool buffer_first_time;
-bool contact_change_flag;
+bool buffer_first_time = true;
+bool contact_change_flag = true;
 // ComputeFootstuff
 Eigen::Matrix<double,3,1> foot_pos[2]; // Contact point of foot
 Eigen::Matrix<double,3,1> foot_vel[2]; // Velocity of contact point
@@ -162,24 +175,29 @@ void setKss()
 
 void computeAnkleRelated()
 {
-  int joint[2] = {PELV_S_JOINT_L_LEG_LAX, PELV_S_JOINT_R_LEG_LAX};
-  int body[2] = {PELV_S_BODY_L_FOOT, PELV_S_BODY_R_FOOT};
 
-  rs->makeSDFastState(Pose(_x.block(X0,0,3,1), _q), _x.block(V0,0,3,1), _w, _joints, _jointsd, sdFastState);
-  set_state(rs->model, sdFastState.data());
+//  rs->makeSDFastState(Pose(_x.block(X0,0,3,1), _q), _x.block(V0,0,3,1), _w, _joints, _jointsd, sdFastState);
+//  set_state(rs->model, sdFastState.data());
 
-  double com_to_ankle[3];
-  double com_to_ref[3]; // Com to reference point.
+  foot_pos[0][0] = cart_state[4].x[1] + _x[0];
+  foot_pos[0][1] = cart_state[4].x[2] + _x[1];
+  foot_pos[0][2] = cart_state[4].x[3] + _x[2];
 
-  for (int side = 0; side < 2; side++) {
-    rs->model->sdgetbtj(joint[side], com_to_ankle);
+  Eigen::Vector3d l_foot_temp(cart_state[4].x[1],cart_state[4].x[2],cart_state[4].x[3]);
+  Eigen::Vector3d l_foot_rot_vel = _w.cross(l_foot_temp);
 
-    for (int i = 0; i < 3; i++)
-      com_to_ref[i] = com_to_ankle[i] + Foot::ankle_to_toe_offset[i];
-    rs->model->sdpos(body[side], com_to_ref, foot_pos[side].data());
-    rs->model->sdvel(body[side], com_to_ref, foot_vel[side].data());
+  foot_pos[1][0] = cart_state[3].x[1] + _x[0];
+  foot_pos[1][1] = cart_state[3].x[2] + _x[1];
+  foot_pos[1][2] = cart_state[3].x[3] + _x[2];
 
-  }
+
+  foot_vel[0][0] = cart_state[4].xd[1] + _x[3];
+  foot_vel[0][1] = cart_state[4].xd[2] + _x[4];
+  foot_vel[0][2] = cart_state[4].xd[3] + _x[5];
+
+  foot_vel[1][0] = cart_state[3].xd[1] + _x[3];
+  foot_vel[1][1] = cart_state[3].xd[2] + _x[4];
+  foot_vel[1][2] = cart_state[3].xd[3] + _x[5];
 
 }
 
@@ -192,10 +210,10 @@ void set_hack_footpos()
   }
   if (contact_change_flag )
   {
-    foot_registered.block(0,0,3,1) = foot_pos[LEFT];
-    foot_registered.block(3,0,3,1) = foot_vel[LEFT];
-    foot_registered.block(6,0,3,1) = foot_pos[RIGHT];
-    foot_registered.block(9,0,3,1) = foot_vel[RIGHT];
+    foot_registered.block(0,0,3,1) = foot_pos[0];
+    foot_registered.block(3,0,3,1) = foot_vel[0];
+    foot_registered.block(6,0,3,1) = foot_pos[1];
+    foot_registered.block(9,0,3,1) = foot_vel[1];
 
     contact_change_flag = false;
   }
@@ -231,7 +249,7 @@ void initKF(const Eigen::Matrix<double,3,1> &root_pos, const Eigen::Matrix<doubl
 
 }
 
-void makeInputs(const Eigen::Quaterniond &q, const Vec3 &w, const Vec3 &a, const Vec30 &joints, const Vec30 &jointsd)
+void makeInputs(const Eigen::Quaterniond &q, const Eigen::Matrix<double,3,1> &w, const Eigen::Matrix<double,3,1> &a, const Eigen::Matrix<double,50,1> &joints, const Eigen::Matrix<double,50,1> &jointsd)
 {
   _q = q;
   _w = w;
@@ -243,9 +261,15 @@ void makeInputs(const Eigen::Quaterniond &q, const Vec3 &w, const Vec3 &a, const
 
 void setContactState (int cs, int toe_flag)
 {
-  setContactState(cs);
+  //setContactState(cs);
   _previous_toe_flag = _toe_flag; // store previous toe flag;
   _toe_flag = toe_flag;
+}
+
+template<typename T> T low_pass_filter(T &hist, T raw, T alpha)
+{
+  hist = hist * alpha + raw * (1-alpha);
+  return hist;
 }
 
 void makeMeasurement(double left_fz, double right_fz)
@@ -260,13 +284,13 @@ void makeMeasurement(double left_fz, double right_fz)
   {
     _previous_contact_state = _contact_state_full;
     contact_change_flag = true;
-    set_hack_footpos();
+//    set_hack_footpos();
   }
 
   if (sqrt(left_fz*left_fz+right_fz*right_fz) < 50) // Total z force small
   {
     contact_change_flag = true; // Just update foot position until the robot drops from the air
-    set_hack_footpos();
+//    set_hack_footpos();
   }
   /*
   if (_toe_flag > _previous_toe_flag)// toe off
@@ -281,25 +305,7 @@ void makeMeasurement(double left_fz, double right_fz)
 }
 
 
-
-/*---------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------*/
-/*---------------------------                              ------------------------------------*/
-/*---------------------------           SL STUFF           ------------------------------------*/
-/*---------------------------                              ------------------------------------*/
-/*---------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------*/
-
-
-static int init_state_est_lin_task(){
-	_P.setIdentity();
-	_Q.setIdentity();
-	_R.setIdentity();
-	return TRUE;
-}
-
-void KinematicFilter3::predictX()
+void predictX()
 {
   // IMU acceleration in world frame without gravity (a = R^{-1}*a_imu + g)
   Eigen::Matrix<double,3,1> acc;
@@ -311,7 +317,35 @@ void KinematicFilter3::predictX()
   _x.block(X0,0,3,1) += timestep*_x.block(V0,0,3,1);// + 0.5*timestep*timestep*acc;
   // Velocity
   // V = R(-q)*(Vimu - \omega x imuoffset)
-  _x.block(V0,0,3,1) = _vimu - _q*_w.cross(_imu_lin_offset);
+  _x.block(V0,0,3,1) = _vimu; //- _q*_w.cross(_imu_lin_offset);
+
+	static int printcounter = 0;
+	printcounter++;
+	if (printcounter > 100){
+		printcounter = 0;
+//		std::cout<<"acc : " <<_a[0] <<" "<<_a[1]<<" "<<_a[2];
+//		std::cout<<"acc : " <<acc[0] <<" "<<acc[1]<<" "<<acc[2];
+//		std::cout<<std::endl;
+	}
+}
+
+void updateZ(int zDim = 6)
+{
+  _z.setZero();
+  _z.block(0,0,3,1) = _beta*foot_pos[0] + (1.0 - _beta)*foot_pos[1];
+  _z.block(3,0,3,1) = _beta*foot_vel[0] + (1.0 - _beta)*foot_vel[1];
+}
+
+void updateX(int zDim = 6)
+{
+  _dx= _K* _innov;
+  _x += _dx;
+  _vimu = _x.block(V0,0,3,1) + _q*_w.cross(_imu_lin_offset);
+}
+
+void computeInnovation(const Eigen::Matrix<double, 6, 1> & z)
+{
+  _innov = z - _z;
 }
 
 void filterOneTimeStep_ss()
@@ -326,15 +360,138 @@ void filterOneTimeStep_ss()
 }
 
 
+
+/*---------------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------*/
+/*---------------------------                              ------------------------------------*/
+/*---------------------------           SL STUFF           ------------------------------------*/
+/*---------------------------                              ------------------------------------*/
+/*---------------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------*/
 /*---------------------------------------------------------------------------------------------*/
 
+bool first_time = false;
+
+static int init_state_est_lin_task(){
+	_P.setIdentity();
+	_Q.setIdentity();
+	_R.setIdentity();
+
+	Eigen::Quaterniond imu_orientation;
+	imu_orientation.w() = misc_sensor[B_Q0_IMU];
+	imu_orientation.x() = misc_sensor[B_Q1_IMU];
+	imu_orientation.y() = misc_sensor[B_Q2_IMU];
+	imu_orientation.z() = misc_sensor[B_Q3_IMU];
+
+	Eigen::Matrix<double,3,1> imu_angular_velocity;
+	imu_angular_velocity[0] = misc_sensor[B_AD_G_IMU];
+	imu_angular_velocity[1] = misc_sensor[B_AD_B_IMU];
+	imu_angular_velocity[2] = misc_sensor[B_AD_A_IMU];
+
+	Eigen::Matrix<double,3,1> imu_linear_acceleration;
+	imu_linear_acceleration[0] = misc_sensor[B_XACC_IMU];
+	imu_linear_acceleration[1] = misc_sensor[B_YACC_IMU];
+	imu_linear_acceleration[2] = misc_sensor[B_ZACC_IMU];
+
+
+
+	_x[0] = base_state.x[1];
+	_x[1] = base_state.x[2];
+	_x[2] = base_state.x[3];
+
+	_x[3] = base_state.xd[1];
+	_x[4] = base_state.xd[2];
+	_x[5] = base_state.xd[3];
+
+	first_time = true;
+
+
+	return TRUE;
+}
+
+
+/*---------------------------------------------------------------------------------------------*/
+int currentForce = 0;
 static int run_state_est_lin_task(){
 
-	makeInputs(imu_orientation, imu_angular_velocity, imu_linear_acceleration, joints, jointsd);
-	setContactState(cState, toeFlag);
+	if (first_time){
 
-	makeMeasurement(l_foot_fz, r_foot_fz);
+//		_x[0] = base_state.x[1];
+//		_x[1] = base_state.x[2];
+//		_x[2] = base_state.x[3];
+//
+//		_x[3] = base_state.xd[1];
+//		_x[4] = base_state.xd[2];
+//		_x[5] = base_state.xd[3];
+
+
+		initKF(Eigen::Vector3d(base_state.x[1],base_state.x[2],base_state.x[3]), Eigen::Vector3d(base_state.xd[1],base_state.xd[2],base_state.xd[3]));
+
+
+		first_time = false;
+
+		buffer_first_time = true;
+		contact_change_flag = true;
+		computeAnkleRelated();
+		set_hack_footpos();
+		std::cout<<foot_pos[0][0] <<" "<<foot_pos[0][1]<<" "<<foot_pos[0][2] <<"\t" <<foot_pos[1][0] <<" "<<foot_pos[1][1]<<" "<<foot_pos[1][2] <<std::endl;
+		std::cout<<foot_registered[0] <<" "<<foot_registered[1]<<" "<<foot_registered[2] <<"\t" <<foot_registered[3] <<" "<<foot_registered[4]<<" "<<foot_registered[5] <<std::endl;
+		std::cout<<std::endl<<std::endl;
+	}
+
+	static int printcounter = 1000;
+	printcounter++;
+	if (printcounter > 1000){
+		printcounter = 0;
+
+		std::cout<<_z[0] <<"\t"<<_z[1]<<"\t"<<_z[2] <<"\t" <<_z[3] <<"\t"<<_z[4]<<"\t"<<_z[5];
+		std::cout<<std::endl;
+		std::cout<<foot_vel[0][0] <<"\t"<<foot_vel[0][1]<<"\t"<<foot_vel[0][2] <<"\t" <<foot_vel[1][0] <<"\t"<<foot_vel[1][1]<<"\t"<<foot_vel[1][2];
+		std::cout<<std::endl;
+		std::cout<<_y[0] <<" "<<_y[1]<<" "<<_y[2] <<"\t" <<_y[3] <<" "<<_y[4]<<" "<<_y[5];
+		std::cout<<std::endl;
+		std::cout<<"err: "<<base_state.x[1] - _x[0] <<" "<<base_state.x[2] - _x[1]<<" "<<base_state.x[3] - _x[2] <<
+				"\t" <<base_state.xd[1] - _x[3] <<" "<<base_state.xd[2] - _x[4]<<" "<<base_state.xd[3] - _x[5];
+		std::cout<<std::endl;
+		std::cout<<std::endl;
+	}
+	Eigen::Quaterniond imu_orientation;
+	imu_orientation.w() = misc_sensor[B_Q0_IMU];
+	imu_orientation.x() = misc_sensor[B_Q1_IMU];
+	imu_orientation.y() = misc_sensor[B_Q2_IMU];
+	imu_orientation.z() = misc_sensor[B_Q3_IMU];
+
+	Eigen::Matrix<double,3,1> imu_angular_velocity;
+	imu_angular_velocity[0] = misc_sensor[B_AD_G_IMU];
+	imu_angular_velocity[1] = misc_sensor[B_AD_B_IMU];
+	imu_angular_velocity[2] = misc_sensor[B_AD_A_IMU];
+
+	Eigen::Matrix<double,3,1> imu_linear_acceleration;
+	imu_linear_acceleration[0] = misc_sensor[B_XACC_IMU];
+	imu_linear_acceleration[1] = misc_sensor[B_YACC_IMU];
+	imu_linear_acceleration[2] = misc_sensor[B_ZACC_IMU];
+
+	Eigen::Matrix<double, 50, 1> joints;
+	for(int x =0; x < 50; x++) joints[x] = joint_state[x+1].th;
+
+	Eigen::Matrix<double, 50, 1> jointsd;
+	for(int x =0; x < 50; x++) jointsd[x] = joint_state[x+1].thd;
+
+	makeInputs(imu_orientation, imu_angular_velocity, imu_linear_acceleration, joints, jointsd);
+	setContactState(2, -1);
+
+	makeMeasurement(misc_sensor[L_CFx], misc_sensor[R_CFx]);
 	filterOneTimeStep_ss();
+
+
+
+
+
+		  if (currentForce != 0){
+			  uext_sim[R_HAA].f[_Y_] = currentForce;
+			  sendUextSim();
+		  }
+
 
 	return TRUE;
 
@@ -343,6 +500,10 @@ static int run_state_est_lin_task(){
 /*---------------------------------------------------------------------------------------------*/
 
 static int change_state_est_lin_task(){
+	  int    ivar;
+	  get_int("ints cause forces",currentForce,&currentForce);
+
+
 
 	return TRUE;
 }
@@ -350,6 +511,5 @@ static int change_state_est_lin_task(){
 /*---------------------------------------------------------------------------------------------*/
 
 void add_state_est_lin_task(){
-
 	addTask("state_est_lin", init_state_est_lin_task, run_state_est_lin_task, change_state_est_lin_task);
 }

@@ -69,8 +69,9 @@ set(xtask_LINKED_LIBS ${xtask_LINKED_LIBS}
 add_executable(xtask_hermes_full
   ${xtask_FILES}
   src/task/tasks/zero_pos.c
+  src/task/tasks/state_est_lin.cpp
 )
-target_link_libraries(xtask_hermes_full ${xtask_LINKED_LIBS} cga_imu)
+target_link_libraries(xtask_hermes_full ${xtask_LINKED_LIBS})
 set_target_properties(xtask_hermes_full PROPERTIES OUTPUT_NAME xtask)
 
 #
