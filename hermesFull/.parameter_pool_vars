@@ -1,0 +1,5 @@
+foot_scale (double, xrhermes)
+osc_enabled (int, xrhermes)
+task_servo_geometry (string, xrhermes)
+openGL_servo_geometry (string, xrhermes)
+motor_servo_geometry (string, xrhermes)
