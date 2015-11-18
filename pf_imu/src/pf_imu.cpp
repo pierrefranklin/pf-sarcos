@@ -236,9 +236,9 @@ void pf_IMU::read_pf_imu()
     rcv_msg.Temp = int32_t(rcv_msg.Temp);
 
     rt_mutex_acquire(&mutex_,TM_INFINITE);
-    A_[0] = double(rcv_msg.xacc);
-    A_[1] = double(rcv_msg.yacc);
-    A_[2] = double(rcv_msg.zacc);
+    A_[0] = double(rcv_msg.xacc)*9.81;
+    A_[1] = double(rcv_msg.yacc)*9.81;
+    A_[2] = double(rcv_msg.zacc)*9.81;
     G_[0] = double(rcv_msg.xrot);
     G_[1] = double(rcv_msg.yrot);
     G_[2] = double(rcv_msg.zrot);

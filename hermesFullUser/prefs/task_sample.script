@@ -951,15 +951,3 @@ base_add
 base_bdd
 base_gdd
 frame_counter
-imu_1_Ax
-imu_1_Ay
-imu_1_Az
-imu_1_Gx
-imu_1_Gy
-imu_1_Gz
-imu_2_Ax
-imu_2_Ay
-imu_2_Az
-imu_2_Gx
-imu_2_Gy
-imu_2_Gz

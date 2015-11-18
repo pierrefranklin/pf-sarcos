@@ -55,8 +55,8 @@ initUserTasks(void)
   //freezeBase(TRUE);
 extern void add_zero_task();
 add_zero_task();
-extern void add_state_est_lin_task();
-add_state_est_lin_task();
+//extern void add_state_est_lin_task();
+//add_state_est_lin_task();
   // use the true base state from the simulation servo
   if(!real_robot_flag)
     toggleSimulatedBaseState();
