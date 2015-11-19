@@ -49,6 +49,9 @@ extern int init_state_est_lin_task();
 extern int run_state_est_lin_task();
 extern void getPelv(SL_quat *base_quat, SL_Cstate *base );
 
+void initialize_fall_detector();
+void test_fall(SL_Cstate * cog_);
+
 /*!*****************************************************************************
  *******************************************************************************
  \note  init_user_task
@@ -79,6 +82,7 @@ init_user_task(void)
 //   		&(misc_sensor[B_XACC_IMU]), task_servo_rate);
 
   init_state_est_lin_task();
+  initialize_fall_detector();
 
   return TRUE;
 
@@ -149,6 +153,7 @@ run_user_task(void)
 #endif
 
   differentiate_cog(&cog);  
+  test_fall(&cog);
 
   // use the simulated base state if required
   if (use_simulated_base_state)

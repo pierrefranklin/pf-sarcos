@@ -94,6 +94,7 @@ add_library(hermes_full_task
   ${hermes_core_SOURCE_PREFIX}/src/base_state_estimation.cpp
   ${hermes_core_SOURCE_PREFIX}/src/state_est_lin.cpp
   ${hermes_core_SOURCE_PREFIX}/src/COGDifferentiator.cpp
+  ${hermes_core_SOURCE_PREFIX}/src/FallDetector.cpp
 )
 target_link_libraries(hermes_full_task
   hermes_full
