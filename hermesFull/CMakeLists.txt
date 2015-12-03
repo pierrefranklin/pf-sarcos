@@ -92,7 +92,7 @@ target_link_libraries(hermes_full_openGL
 add_library(hermes_full_task
   ${hermes_core_SOURCE_PREFIX}/src/SL_user_task.c
   ${hermes_core_SOURCE_PREFIX}/src/base_state_estimation.cpp
-  ${hermes_core_SOURCE_PREFIX}/src/state_est_lin.cpp
+  ${hermes_core_SOURCE_PREFIX}/src/state_est_kin.cpp
   ${hermes_core_SOURCE_PREFIX}/src/COGDifferentiator.cpp
   ${hermes_core_SOURCE_PREFIX}/src/FallDetector.cpp
 )
@@ -100,6 +100,7 @@ target_link_libraries(hermes_full_task
   hermes_full
   SLtask
   cga_imu
+  pf_imu
 )
 
 # simulation servo modules

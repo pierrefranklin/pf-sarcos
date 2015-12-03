@@ -6,6 +6,7 @@
  */
 
 #include "COGDifferentiator.h"
+#include "SL_user.h"
 
 COG_Differentiator::COG_Differentiator() {
 	for (int i = 0; i < 3; i++){
@@ -25,7 +26,7 @@ COG_Differentiator::~COG_Differentiator() {
 void COG_Differentiator::apply_cog_diff(SL_Cstate* cog){
 
 	for(int i = 0; i < 3; i++){
-		cog->xd[i+1] = filt(cog->x[i+1] - prev_cog.x[i + 1], &cog_dot_filter[i]);
+		cog->xd[i+1] = filt((cog->x[i+1] - prev_cog.x[i + 1])*SERVO_BASE_RATE, &cog_dot_filter[i]);
 	}
 
 	prev_cog = *cog;

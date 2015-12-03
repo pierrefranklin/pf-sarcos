@@ -30,42 +30,42 @@ int FallDetector::test_fall(SL_Cstate* cog_)
 		x_capture[i] = cog_->x[i] + cog_->xd[i]*sqrt(abs(cog_->x[_Z_]/ gravity));
 	}
 
-	static bool printed = false;
+//	static bool printed = false;
 
 	//Check if capturepoint is beyond the toe, assuming alignment of y axis
 //	if (x_capture[_Y_] > cart_state[LEFT_FOOT].x[_Y_]+YTOE){
 	if (!check_support_polygon(x_capture)){
 		current_count++;
-		if (!printed){
-			printf("\npositive %i...\n", current_count);
-		}
+//		if (!printed){
+//			printf("\npositive %i...\n", current_count);
+//		}
 		//If we've had enough consecutive alerts, assume we're falling
 		if (current_count >= debounce_count){
 			current_count = debounce_count; //keep from overflowing
 			retval = TRUE;
-			if (!printed){
-				printf("\nFALLING!!!! \n");
-				printed = true;
-			}
+//			if (!printed){
+//				printf("\nFALLING!!!! \n");
+//				printed = true;
+//			}
 		}
 
 	} else {
 		current_count = 0;
-		printed = false;
+//		printed = false;
 	}
 
 	cog_->xdd[1] = current_count;
 
 
-	static int printcounter =100;
-	printcounter ++;
-	if (printcounter > 100){
-//		printf("y_edge = %f, y_capture = %f \n", cart_state[LEFT_FOOT].x[_Y_]+YTOE ,x_capture[_Y_]);
-		printcounter = 0;
-		if(retval){
-			printf("FALLING...");
-		}
-	}
+//	static int printcounter =100;
+//	printcounter ++;
+//	if (printcounter > 100){
+////		printf("y_edge = %f, y_capture = %f \n", cart_state[LEFT_FOOT].x[_Y_]+YTOE ,x_capture[_Y_]);
+//		printcounter = 0;
+//		if(retval){
+//			printf("FALLING...");
+//		}
+//	}
 
 
 

@@ -5,6 +5,8 @@
  *      Author: perry
  */
 
+#include "state_est_kin.h"
+
 #include <iostream>
 #include <Eigen/Core>
 #include <eigen3/Eigen/Geometry>
@@ -28,75 +30,43 @@ extern "C"
 {
 int init_state_est_lin_task();
 int run_state_est_lin_task();
-static int change_state_est_lin_task();
-void add_state_est_lin_task();
 void getPelv(SL_quat *base_quat, SL_Cstate *base );
 
 }
 
-Eigen::Matrix<double,3,1> _gravity(0,0,-9.81);
-Eigen::Matrix<double,3,1> _imu_lin_offset(-0.1, 0.11, -0.09);
-Eigen::Quaterniond _imu_quat_offset(0.38268, 0, 0, -0.92388);
 
-static const int X0 = 0;
-static const int V0 = 3;
-// Filter Params
-int zDim;
-Eigen::Matrix<double,6,1> _y;
-Eigen::Matrix<double,6,1> _x;
-Eigen::Matrix<double,6,1> _z;
-Eigen::Matrix<double,6,1> _innov;
 
-Eigen::Matrix<double,6,6> _P;
-Eigen::Matrix<double,6,6> _Q;
-Eigen::Matrix<double,6,6> _R;
-Eigen::Matrix<double,6,6> _K;
-Eigen::Matrix<double,6,6> _S;
-
-Eigen::Matrix<double,6,6> _A;
-Eigen::Matrix<double,6,6> _C;
-Eigen::Matrix<double,6,1> _dx;
-// Input
-Eigen::Quaternion<double> _q;
-Eigen::Matrix<double,3,1> _a; // Acceleration as input from IMU ekf or raw data
-Eigen::Matrix<double,3,1> _w; // Angular velocity as input IMU ekf or raw data
-Eigen::Matrix<double,3,1> _vimu;
-Eigen::Matrix<double,50,1> _joints;
-Eigen::Matrix<double,50,1> _jointsd;
-//Flag
-int _toe_flag; // Toe off flag from controller, reset reference point.
-int _previous_toe_flag; // Toe off flag from controller, reset reference point.
-int _contact_state;
-int _contact_state_full;
-int _previous_contact_state; // Previous contact state
-// int _contact_timer;
-bool buffer_first_time = true;
-bool contact_change_flag = true;
-// ComputeFootstuff
-Eigen::Matrix<double,3,1> foot_pos[2]; // Contact point of foot
-Eigen::Matrix<double,3,1> foot_vel[2]; // Velocity of contact point
-Eigen::Matrix<double,3,1> foot_toe_pos[2]; // Position of toe
-Eigen::Matrix<double,3,1> foot_toe_vel[2]; // Velocity of toe
-Eigen::Matrix<double,12,1> foot_registered; // registered foot position/velocity, used as measurement
-// Weight distribution between left and right leg
-double _beta;
-
-const static double timestep = 0.001;
+const static double timestep = 1.0/(double) SERVO_BASE_RATE;
 
 /*-----------------------------------------------------------------------------------------*/
-void makeProcessJacobian ()
+StateEstimatorKinematic::StateEstimatorKinematic():
+	_gravity(0,0,-9.81),
+	_imu_lin_offset(-0.1, 0.11, -0.09),
+	_imu_quat_offset(0.38268, 0, 0, -0.92388){
+	_contact_state = 0;
+	zDim = 6;
+	_previous_toe_flag = 0;
+	_previous_contact_state = 0;
+	_beta = 0.5;
+	_contact_state_full = 0;
+	_toe_flag = 0;
+	buffer_first_time = true;
+	contact_change_flag = true;
+}
+
+void StateEstimatorKinematic::makeProcessJacobian ()
 {
   _A.setIdentity();
   _A.block(0,3,3,3).setIdentity();
   _A.block(0,3,3,3) *= timestep;
 }
 
-void makeObservationJacobian ()
+void StateEstimatorKinematic::makeObservationJacobian ()
 {
   _C.setIdentity();
 }
 
-void dare(const Eigen::Matrix<double,6,6> &A, const Eigen::Matrix<double,6,6> &B, Eigen::Matrix<double,6,6> &P,int zDim = 6)
+void StateEstimatorKinematic::dare(const Eigen::Matrix<double,6,6> &A, const Eigen::Matrix<double,6,6> &B, Eigen::Matrix<double,6,6> &P,int zDim)
 {
   Eigen::Matrix<double,6,6> Ainv = A.inverse();
   Eigen::Matrix<double,6,6> ABRB;
@@ -141,7 +111,7 @@ void dare(const Eigen::Matrix<double,6,6> &A, const Eigen::Matrix<double,6,6> &B
   }
 }
 
-void computeKss(const Eigen::Matrix<double,6,6> &A, const Eigen::Matrix<double,6,6> &C, int zDim = 6)
+void StateEstimatorKinematic::computeKss(const Eigen::Matrix<double,6,6> &A, const Eigen::Matrix<double,6,6> &C, int zDim )
 {
 
   Eigen::Matrix<double,6,6> B = C.transpose();
@@ -163,7 +133,7 @@ void computeKss(const Eigen::Matrix<double,6,6> &A, const Eigen::Matrix<double,6
   }
 }
 
-void setKss()
+void StateEstimatorKinematic::setKss()
 {
   makeProcessJacobian();
   makeObservationJacobian();
@@ -172,7 +142,7 @@ void setKss()
   computeKss(_A,_C, 6);
 }
 
-void computeAnkleRelated()
+void StateEstimatorKinematic::computeAnkleRelated()
 {
 	  for(int i=3; i<=4; ++i){
 	    for(int j=1; j<=6; ++j)
@@ -204,7 +174,7 @@ void computeAnkleRelated()
 
 }
 
-void set_hack_footpos()
+void StateEstimatorKinematic::set_hack_footpos()
 {
   if (buffer_first_time)
   {
@@ -225,7 +195,7 @@ void set_hack_footpos()
 int initializing_q = 0;
 Eigen::Vector3d init_gravity_vector;
 
-void initKF(const Eigen::Matrix<double,3,1> &root_pos, const Eigen::Matrix<double,3,1> &root_vel){
+void StateEstimatorKinematic::initKF(const Eigen::Matrix<double,3,1> &root_pos, const Eigen::Matrix<double,3,1> &root_vel){
 
 	buffer_first_time = true;
 	contact_change_flag = true;
@@ -262,7 +232,7 @@ void initKF(const Eigen::Matrix<double,3,1> &root_pos, const Eigen::Matrix<doubl
 
 }
 
-void makeInputs(const Eigen::Quaterniond &q, const Eigen::Matrix<double,3,1> &w, const Eigen::Matrix<double,3,1> &a, const Eigen::Matrix<double,50,1> &joints, const Eigen::Matrix<double,50,1> &jointsd)
+void StateEstimatorKinematic::makeInputs(const Eigen::Quaterniond &q, const Eigen::Matrix<double,3,1> &w, const Eigen::Matrix<double,3,1> &a, const Eigen::Matrix<double,50,1> &joints, const Eigen::Matrix<double,50,1> &jointsd)
 {
   _q = q;
   _w = w;
@@ -272,7 +242,7 @@ void makeInputs(const Eigen::Quaterniond &q, const Eigen::Matrix<double,3,1> &w,
 }
 
 
-void setContactState (int cs, int toe_flag)
+void StateEstimatorKinematic::setContactState (int cs, int toe_flag)
 {
   //setContactState(cs);
   _previous_toe_flag = _toe_flag; // store previous toe flag;
@@ -285,7 +255,7 @@ template<typename T> T low_pass_filter(T &hist, T raw, T alpha)
   return hist;
 }
 
-void makeMeasurement(double left_fz, double right_fz)
+void StateEstimatorKinematic::makeMeasurement(double left_fz, double right_fz)
 {
   static double fz_hist[2] = {750, 750};
   left_fz = low_pass_filter(fz_hist[0], left_fz, 0.99);
@@ -318,7 +288,7 @@ void makeMeasurement(double left_fz, double right_fz)
 }
 
 
-void predictX()
+void StateEstimatorKinematic::predictX()
 {
   // IMU acceleration in world frame without gravity (a = R^{-1}*a_imu + g)
   Eigen::Matrix<double,3,1> acc;
@@ -342,26 +312,26 @@ void predictX()
 	}
 }
 
-void updateZ(int zDim = 6)
+void StateEstimatorKinematic::updateZ(int zDim)
 {
   _z.setZero();
   _z.block(0,0,3,1) = _beta*foot_pos[0] + (1.0 - _beta)*foot_pos[1];
   _z.block(3,0,3,1) = _beta*foot_vel[0] + (1.0 - _beta)*foot_vel[1];
 }
 
-void updateX(int zDim = 6)
+void StateEstimatorKinematic::updateX(int zDim)
 {
   _dx= _K* _innov;
   _x += _dx;
   _vimu = _x.block(V0,0,3,1) + _q*_w.cross(_imu_lin_offset);
 }
 
-void computeInnovation(const Eigen::Matrix<double, 6, 1> & z)
+void StateEstimatorKinematic::computeInnovation(const Eigen::Matrix<double, 6, 1> & z)
 {
   _innov =  z-_z ;
 }
 
-void filterOneTimeStep_ss()
+void StateEstimatorKinematic::filterOneTimeStep_ss()
 {
   predictX();
   computeAnkleRelated(); // Compute ankle position and velocity
@@ -371,7 +341,6 @@ void filterOneTimeStep_ss()
   // The following steps are additional step for next step measurement
   computeAnkleRelated(); // Compute ankle position and velocity
 }
-
 
 
 /*---------------------------------------------------------------------------------------------*/
@@ -385,7 +354,15 @@ void filterOneTimeStep_ss()
 
 bool first_time = false;
 
+StateEstimatorKinematic sek;
+
 int init_state_est_lin_task(){
+	sek.initialize();
+	sek.initKF(Eigen::Vector3d(0,0,0), Eigen::Vector3d(0,0,0));
+	return TRUE;
+}
+
+int StateEstimatorKinematic::initialize(){
 	_P.setIdentity();
 	_Q.setIdentity();
 	_R.setIdentity();
@@ -422,24 +399,26 @@ int init_state_est_lin_task(){
 	return TRUE;
 }
 
-void integrate_angular_velocity(Eigen::Vector3d rpy){
+void StateEstimatorKinematic::integrate_angular_velocity(Eigen::Vector3d xyz){
 	Eigen::Quaterniond m;
-	m = Eigen::AngleAxisd(rpy[0]*timestep, Eigen::Vector3d::UnitX())*
-	    Eigen::AngleAxisd(rpy[1]*timestep, Eigen::Vector3d::UnitY())*
-	    Eigen::AngleAxisd(rpy[2]*timestep, Eigen::Vector3d::UnitZ());
+	m = Eigen::AngleAxisd(xyz.norm()*timestep,xyz);
 
 	_q = _q*m;
 }
 
 
 /*---------------------------------------------------------------------------------------------*/
-int currentForce = 0;
+
 int run_state_est_lin_task(){
+	return sek.run_state_est_lin_task();
+}
+
+int StateEstimatorKinematic::run_state_est_lin_task(){
 
 	if (first_time){
 
 		//initKF(Eigen::Vector3d(base_state.x[1],base_state.x[2],base_state.x[3]), Eigen::Vector3d(base_state.xd[1],base_state.xd[2],base_state.xd[3]));
-		initKF(Eigen::Vector3d(0,0,0), Eigen::Vector3d(0,0,0));
+		//initKF(Eigen::Vector3d(0,0,0), Eigen::Vector3d(0,0,0));
 
 		first_time = false;
 
@@ -447,9 +426,6 @@ int run_state_est_lin_task(){
 		contact_change_flag = true;
 		computeAnkleRelated();
 		set_hack_footpos();
-		std::cout<<foot_pos[0][0] <<" "<<foot_pos[0][1]<<" "<<foot_pos[0][2] <<"\t" <<foot_pos[1][0] <<" "<<foot_pos[1][1]<<" "<<foot_pos[1][2] <<std::endl;
-		std::cout<<foot_registered[0] <<" "<<foot_registered[1]<<" "<<foot_registered[2] <<"\t" <<foot_registered[3] <<" "<<foot_registered[4]<<" "<<foot_registered[5] <<std::endl;
-//		std::cout<<std::endl<<std::endl;
 
 
 	}
@@ -480,22 +456,22 @@ int run_state_est_lin_task(){
 		return TRUE;
 	}
 
-	static int printcounter = 1000;
-	printcounter++;
-	if (printcounter > 1000){
-		printcounter = 0;
-
-		std::cout<<"innov === "<<_innov[0] <<"\t"<<_innov[1]<<"\t"<<_innov[2] <<"\t" <<_innov[3] <<"\t"<<_innov[4]<<"\t"<<_innov[5];
-		std::cout<<std::endl;
-		std::cout<<"z === "<<_z[0] <<"\t"<<_z[1]<<"\t"<<_z[2] <<"\t" <<_z[3] <<"\t"<<_z[4]<<"\t"<<_z[5];
-		std::cout<<std::endl;
-		std::cout<<"y === "<<_y[0] <<" "<<_y[1]<<" "<<_y[2] <<"\t" <<_y[3] <<" "<<_y[4]<<" "<<_y[5];
-		std::cout<<std::endl;
-//		std::cout<<"err: "<<base_state.x[1] - _x[0] <<" "<<base_state.x[2] - _x[1]<<" "<<base_state.x[3] - _x[2] <<
-//				"\t" <<base_state.xd[1] - _x[3] <<" "<<base_state.xd[2] - _x[4]<<" "<<base_state.xd[3] - _x[5];
-		std::cout<<std::endl;
-		std::cout<<std::endl;
-	}
+//	static int printcounter = 1000;
+//	printcounter++;
+//	if (printcounter > 1000){
+//		printcounter = 0;
+//
+//		std::cout<<"innov === "<<_innov[0] <<"\t"<<_innov[1]<<"\t"<<_innov[2] <<"\t" <<_innov[3] <<"\t"<<_innov[4]<<"\t"<<_innov[5];
+//		std::cout<<std::endl;
+//		std::cout<<"z === "<<_z[0] <<"\t"<<_z[1]<<"\t"<<_z[2] <<"\t" <<_z[3] <<"\t"<<_z[4]<<"\t"<<_z[5];
+//		std::cout<<std::endl;
+//		std::cout<<"y === "<<_y[0] <<" "<<_y[1]<<" "<<_y[2] <<"\t" <<_y[3] <<" "<<_y[4]<<" "<<_y[5];
+//		std::cout<<std::endl;
+////		std::cout<<"err: "<<base_state.x[1] - _x[0] <<" "<<base_state.x[2] - _x[1]<<" "<<base_state.x[3] - _x[2] <<
+////				"\t" <<base_state.xd[1] - _x[3] <<" "<<base_state.xd[2] - _x[4]<<" "<<base_state.xd[3] - _x[5];
+//		std::cout<<std::endl;
+//		std::cout<<std::endl;
+//	}
 
 	Eigen::Matrix<double,3,1> imu_angular_velocity;
 	imu_angular_velocity[0] = misc_sensor[B_AD_A_IMU];
@@ -523,52 +499,17 @@ int run_state_est_lin_task(){
 	makeMeasurement(misc_sensor[L_CFx], misc_sensor[R_CFx]);
 	filterOneTimeStep_ss();
 
-
-
-
-
-		  if (currentForce != 0){
-			  uext_sim[R_HAA].f[_Y_] = currentForce;
-			  sendUextSim();
-		  }
-
-//	static int reset_counter = 0;
-//	reset_counter++;
-//	if (reset_counter == 10000){
-//		reset_counter = 0;
-//		_x[0] = 0;
-//		_x[1] = 0;
-//		_x[2] = 0;
-//		_x[3] = 0;
-//		_x[4] = 0;
-//		_x[5] = 0;
-//		_vimu[0] = 0;
-//		_vimu[1] = 0;
-//		_vimu[2] = 0;
-//	}
-
 	return TRUE;
 }
 
-/*---------------------------------------------------------------------------------------------*/
 
-static int change_state_est_lin_task(){
-	  int    ivar;
-	  get_int("ints cause forces",currentForce,&currentForce);
-
-
-
-	return TRUE;
-}
-
-/*---------------------------------------------------------------------------------------------*/
-
-void add_state_est_lin_task(){
-	addTask("state_est_lin", init_state_est_lin_task, run_state_est_lin_task, change_state_est_lin_task);
-}
 /*---------------------------------------------------------------------------------------------*/
 
 void getPelv(SL_quat *base_quat, SL_Cstate *base ){
+	sek.getPelv(base_quat, base );
+}
+
+void StateEstimatorKinematic::getPelv(SL_quat *base_quat, SL_Cstate *base ){
 	base->x[1] = _x[0];
 	base->x[2] = _x[1];
 	base->x[3] = _x[2];
