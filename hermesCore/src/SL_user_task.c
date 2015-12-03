@@ -43,9 +43,14 @@ extern void initialize_base_state_estimation(const double* imu_quaternion,
       const double* imu_angrate, const double* imu_linacc, int update_rate);
 extern void update_base_state_estimation(SL_quat* base_orientation, SL_Cstate* base_position);
 
+extern void differentiate_cog(SL_Cstate* cog);
+
 extern int init_state_est_lin_task();
 extern int run_state_est_lin_task();
 extern void getPelv(SL_quat *base_quat, SL_Cstate *base );
+
+void initialize_fall_detector();
+void test_fall(SL_Cstate * cog_);
 
 /*!*****************************************************************************
  *******************************************************************************
@@ -77,6 +82,7 @@ init_user_task(void)
 //   		&(misc_sensor[B_XACC_IMU]), task_servo_rate);
 
   init_state_est_lin_task();
+  initialize_fall_detector();
 
   return TRUE;
 
@@ -145,7 +151,10 @@ run_user_task(void)
   v[_G_] = misc_sensor[R_CTg];
   mat_vec_mult_size(Alink[R_IN_HEEL],N_CART,N_CART,v,N_CART,endeff[RIGHT_FOOT].ct);
 #endif
-  
+
+  differentiate_cog(&cog);  
+  test_fall(&cog);
+
   // use the simulated base state if required
   if (use_simulated_base_state)
     read_simulated_base();
@@ -157,7 +166,6 @@ run_user_task(void)
 
 	  run_state_est_lin_task();
 	  getPelv(&base_orient, &base_state);
-
 
 	  // base state
 	  if (semTake(sm_base_state_sem,ns2ticks(NO_WAIT)) == ERROR)
