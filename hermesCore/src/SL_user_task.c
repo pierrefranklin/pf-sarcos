@@ -45,9 +45,9 @@ extern void update_base_state_estimation(SL_quat* base_orientation, SL_Cstate* b
 
 extern void differentiate_cog(SL_Cstate* cog);
 
-extern int init_state_est_lin_task();
-extern int run_state_est_lin_task();
-extern void getPelv(SL_quat *base_quat, SL_Cstate *base );
+// extern int init_state_est_lin_task();
+// extern int run_state_est_lin_task();
+// extern void getPelv(SL_quat *base_quat, SL_Cstate *base );
 
 void initialize_fall_detector();
 void test_fall(SL_Cstate * cog_);
@@ -81,7 +81,7 @@ init_user_task(void)
 //  initialize_base_state_estimation(&(misc_sensor[B_Q0_IMU]), &(misc_sensor[B_AD_A_IMU]),
 //   		&(misc_sensor[B_XACC_IMU]), task_servo_rate);
 
-  init_state_est_lin_task();
+  // init_state_est_lin_task();
   initialize_fall_detector();
 
   return TRUE;
@@ -164,8 +164,8 @@ run_user_task(void)
 	  // do base state estimation
 //	  update_base_state_estimation(&base_orient, &base_state);
 
-	  run_state_est_lin_task();
-	  getPelv(&base_orient, &base_state);
+	  // run_state_est_lin_task();
+	  // getPelv(&base_orient, &base_state);
 
 	  // base state
 	  if (semTake(sm_base_state_sem,ns2ticks(NO_WAIT)) == ERROR)

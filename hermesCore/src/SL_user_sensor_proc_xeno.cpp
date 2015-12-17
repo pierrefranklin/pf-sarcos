@@ -16,6 +16,7 @@ program via shared memory and is intended to control the real robot
 ============================================================================*/
 #include "cga_imu.h"
 #include <pf-sarcos/pf_imu.h>
+#include "state_est_kin.h"
 
 #include "SL_user_sensor_proc_xeno.h"
 
@@ -63,6 +64,7 @@ int new_pid_gains[3]; //ordered in a P-I-D sequence
 int new_bias[2]; //bias or dither parameters
 int gdc_card_index; //#of the GDC card that needs a gain change
 bool use_feet = true;
+StateEstimatorKinematic state_est;
 
 ///////////////////////////////////////////////////
 ////////////////local functions////////////////////
@@ -317,6 +319,9 @@ int init_user_sensor_processing(void)
 
   }
 
+  sek.initialize();
+  sek.initKF(Eigen::Vector3d(0,0,0), Eigen::Vector3d(0,0,0));
+
   if( (rc = rt_mutex_release(&gdc_mutex)) )
   {
     printf("Error cannot release gdc mutex, error code %d\n", rc);
@@ -441,6 +446,9 @@ else
 
 		//printf("ERROR>>SL_user_sensor_proc: cannot update OpenGL\n");
   }
+
+  sek.run_state_est_lin_task();
+  sek.getPelv(&base_orient, &base_state);
 
 
   return TRUE;
